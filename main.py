@@ -10,7 +10,6 @@ app = FastAPI(title="FairGPT Unbiased News API")
 
 
 origins=[
-    "http://localhost:3000",
     "https://fairgpt.vercel.app/"
 ]
 
@@ -91,3 +90,4 @@ async def process_media_logic(file):
 def home():
 
     return {"message": "FairGPT Backend is Live!"}
+
