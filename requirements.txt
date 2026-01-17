@@ -1,1 +1,11 @@
-fastapi, uvicorn, google-genai, python-multipart, and python-dotenv
+fastapi
+uvicorn
+python-multipart
+google-genai
+requests
+beautifulsoup4
+lxml
+tavily-python
+firebase-admin
+python-dotenv
+pydantic
