@@ -10,7 +10,7 @@ app = FastAPI(title="FairGPT Unbiased News API")
 
 
 origins=[
-    "https://fairgpt.vercel.app/"
+    "https://fairgpt.vercel.app"
 ]
 
 # Enable CORS for React frontend
@@ -90,4 +90,5 @@ async def process_media_logic(file):
 def home():
 
     return {"message": "FairGPT Backend is Live!"}
+
 
