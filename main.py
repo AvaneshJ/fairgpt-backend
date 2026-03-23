@@ -6,17 +6,18 @@ from google import genai
 from google.genai import types
 from rag_engine import generate_hybrid_rag_news 
 import asyncio
-app = FastAPI(title="FairGPT Unbiased News API")
+app = FastAPI(title="TruthLens Unbiased News API")
 
 
-origins = [
+origins=[
     "http://localhost:3000",
-    "https://fairgpt.vercel.app" 
+    "http://your-frontend-domain.vercel.app"
 ]
 
+# Enable CORS for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins, 
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,11 +28,12 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 class NewsQuery(BaseModel):
     query: str
+    language: str="English"
 
 @app.post("/api/search")
 async def search_news(data: NewsQuery):
     api_key = os.getenv("API_KEY")
-    result = generate_hybrid_rag_news(data.query, api_key)
+    result = generate_hybrid_rag_news(data.query, api_key,data.language)
     return result
 
 # 🟢 NEW: MULTIMODAL MEDIA VERIFICATION ENDPOINT
@@ -87,9 +89,6 @@ async def process_media_logic(file):
             raise e
     return {"status": "FAIL", "summary": "All models exhausted."}
 @app.get("/")
+@app.get("/api/health")
 def home():
-
     return {"message": "FairGPT Backend is Live!"}
-
-
-

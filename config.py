@@ -14,7 +14,7 @@ FIREBASE_CONFIG = {} # This will be set by the environment
 API_URL_BASE = "https://generativelanguage.googleapis.com"
 
 # Gemini API Model for Generation and Grounding
-MODEL_NAME = "gemini-2.5-flash-preview-09-2025"
+MODEL_NAME = "gemini-2.5-flash"
 MAX_RETRIES = 3
 API_TIMEOUT = 60 # Seconds
 
