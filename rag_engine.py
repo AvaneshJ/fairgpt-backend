@@ -9,7 +9,7 @@ from source_reputation import get_source_profile
 from config import API_URL_BASE, MODEL_NAME, SYSTEM_INSTRUCTION, RAW_NEWS_COLLECTION
 from database_setup import DB
 import json
-import random
+import hashlib
 tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
 # --- HELPER FUNCTIONS ---
@@ -51,51 +51,53 @@ def parse_ai_response(text):
             
     return sections
 def generate_temporal_trend(search_results: list) -> list:
-    """Extracts real publication dates to build an accurate 7-day trend chart."""
+    """Smartly extracts dates from article text or generates a unique deterministic trend."""
     today = datetime.date.today()
     
-    # Initialize the last 7 days with a baseline volume (1) so the chart line never breaks
-    trend_data = { (today - datetime.timedelta(days=i)).strftime("%b %d"): 1 for i in range(6, -1, -1) }
+    # Initialize the last 7 days with a low baseline volume so the chart line exists
+    trend_data = { (today - datetime.timedelta(days=i)).strftime("%b %d"): 5 for i in range(6, -1, -1) }
     
-    real_dates_found = False
-
     for res in search_results:
-        # Try to grab explicit published dates from the Tavily metadata
-        pub_date_str = str(res.get('published_date', ''))
+        # Combine title and content to search for dates
+        text = (res.get('content', '') + " " + res.get('title', '')).lower()
         
-        # Regex to find standard YYYY-MM-DD formats in the metadata
-        match = re.search(r'(\d{4})-(\d{2})-(\d{2})', pub_date_str)
+        # Calculate how high the spike should be based on our semantic re-ranker
+        volume_boost = int(res.get('relevance_score', 0.5) * 25) + 10 
         
-        # Use the relevance score from our Semantic Re-ranker to determine spike height
-        volume_boost = int(res.get('relevance_score', 0.5) * 20) + 5 
-
-        if match:
-            try:
-                pub_date = datetime.date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
-                date_key = pub_date.strftime("%b %d")
+        assigned_date = False
+        
+        # 1. SMART SCANNER: Look for explicit mentions of recent days in the text
+        for i in range(7):
+            past_date = today - datetime.timedelta(days=i)
+            month_str = past_date.strftime("%b").lower() # e.g., "mar"
+            month_full = past_date.strftime("%B").lower() # e.g., "march"
+            day_str = str(past_date.day) # e.g., "24"
+            
+            # Check if text says "Mar 24", "March 24", "2 days ago", or "yesterday"
+            if (f"{month_str} {day_str}" in text or 
+                f"{month_full} {day_str}" in text or 
+                f"{i} days ago" in text or 
+                (i == 1 and "yesterday" in text)):
                 
-                # If the article was published in the last 7 days, add a massive spike
-                if date_key in trend_data:
-                    trend_data[date_key] += volume_boost
-                    real_dates_found = True
-            except ValueError:
-                pass
-    
-    # Fallback: Web search doesn't always return perfect publication dates.
-    # If explicit dates are missing, simulate a breaking news cycle by 
-    # weighting the highly relevant volume spikes towards the last 48-72 hours.
-    if not real_dates_found and search_results:
-        for res in search_results:
-            volume_boost = int(res.get('relevance_score', 0.5) * 15)
-            if volume_boost > 0:
-                # Distribute the spike organically into the last 3 days
-                recent_days = list(trend_data.keys())[-3:]
-                target_day = random.choice(recent_days)
-                trend_data[target_day] += volume_boost
+                date_key = past_date.strftime("%b %d")
+                trend_data[date_key] += volume_boost
+                assigned_date = True
+                break
+                
+        # 2. DETERMINISTIC FALLBACK: If no date is found, create a unique spike based on the text
+        if not assigned_date and text.strip():
+            # Create a unique number from the article's text using MD5 hashing
+            hash_val = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
+            
+            # Use that unique number to pick a consistent day (0 to 6 days ago)
+            random_days_ago = hash_val % 7
+            target_date = (today - datetime.timedelta(days=random_days_ago)).strftime("%b %d")
+            
+            # Add a moderate volume spike
+            trend_data[target_date] += (volume_boost // 2)
 
-    # Convert the dictionary back into the list format your Recharts frontend expects
+    # Convert back to the array format Recharts needs
     return [{"date": k, "volume": v} for k, v in trend_data.items()]
-
 def filter_relevant_sources(core_claim: str, search_results: list, max_to_keep: int = 5) -> list:
     """Scores and filters search results to remove irrelevant SEO spam."""
     if not search_results: return []
@@ -181,8 +183,24 @@ def generate_hybrid_rag_news(user_query: str, api_key: str, language: str="Engli
         q_official = search_plan[1] if len(search_plan) > 1 else user_query
         q_alt = search_plan[2] if len(search_plan) > 2 else f'criticism of "{user_query}" OR "opposition to {user_query}"'
 
-        GOLDEN_LIST = ["pib.gov", "boomlive.in", "factly.in", "altnews.in"]
-        CONSENSUS_LIST = ["thehindu.com", "indianexpress.com", "reuters.com", "apnews.com", "aniin.com"]
+        GOLDEN_LIST = [
+    # Core Government & Constitutional Bodies
+    "pib.gov.in", "india.gov.in", "mp.gov.in", "rbi.org.in", 
+    "eci.gov.in", "mohfw.gov.in", "uidai.gov.in", "mea.gov.in","india"
+    # Global Authorities
+    "who.int", "un.org", "worldbank.org",
+    # Certified Fact-Checking Units
+    "boomlive.in", "factly.in", "altnews.in", "newschecker.in", 
+    "vishvasnews.com", "logically.ai", "smhoaxdetect.com"
+]
+        CONSENSUS_LIST = [
+    # State Media & News Wires
+    "ddnews.gov.in", "newsonair.gov.in", "ptinews.com", "aniin.com",
+    # Mainstream Newspapers of Record
+    "thehindu.com", "indianexpress.com", "theprint.in", "livemint.com",
+    # International Wires
+    "reuters.com", "apnews.com", "bbc.com/news", "bloomberg.com", "aljazeera.com"
+]
         
         # 2. EXECUTE TARGETED SEARCHES
         print(f"🔎 Executing Agentic Searches...")
