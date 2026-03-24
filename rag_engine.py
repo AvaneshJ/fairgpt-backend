@@ -316,6 +316,10 @@ def generate_hybrid_rag_news(user_query: str, api_key: str, language: str="Engli
             "sources": verified_sources[:8]
         }
 
+    # 🟢 THE SECURE WAY
     except Exception as e:
-        print(f"🔥 FAIL-SAFE: {e}")
-        return {"status": "SUCCESS", "summary": f"Audit error: {str(e)}", "certainty": 60, "clarifications": [], "audit_history": []}
+    # 1. Print the raw error to your secure Render console
+        print(f"🔥 Internal Gemini API Error: {str(e)}") 
+    
+    # 2. Return a safe, hardcoded string to the frontend
+        return "Audit error: The AI models are currently experiencing heavy traffic. Please wait a moment and try again."
