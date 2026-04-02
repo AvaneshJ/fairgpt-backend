@@ -14,17 +14,9 @@ tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
 # --- HELPER FUNCTIONS ---
 
-def calculate_bias_score(text: str) -> float:
-    if not text: return 0.0
-    loaded_markers = ["allegedly", "claimed", "apparently", "supposedly", "huge", "shocking", "exposed"]
-    words = text.lower().split()
-    bias_hits = sum(1 for word in words if any(marker in word for marker in loaded_markers))
-    return min(round((bias_hits / max(len(words), 1)) * 10, 2), 1.0)
-
-
 def parse_ai_response(text):
     # List of tags we expect in order
-    tags = ["[SUMMARY]", "[COUNTER_SUMMARY]", "[CLARIFICATION]", "[AUDIT]", "[LOGIC_AUDIT]", "[CONFIDENCE]"]
+    tags = ["[SUMMARY]", "[COUNTER_SUMMARY]", "[CLARIFICATION]", "[AUDIT]", "[LOGIC_AUDIT]", "[CONFIDENCE]", "[TIMELINE]","[BIAS_METER]", "[BIAS_REASON]"]
     sections = {}
     
     # Map where every tag starts in the raw text
@@ -50,54 +42,7 @@ def parse_ai_response(text):
             sections[current_tag] = text[start_content:].strip()
             
     return sections
-def generate_temporal_trend(search_results: list) -> list:
-    """Smartly extracts dates from article text or generates a unique deterministic trend."""
-    today = datetime.date.today()
-    
-    # Initialize the last 7 days with a low baseline volume so the chart line exists
-    trend_data = { (today - datetime.timedelta(days=i)).strftime("%b %d"): 5 for i in range(6, -1, -1) }
-    
-    for res in search_results:
-        # Combine title and content to search for dates
-        text = (res.get('content', '') + " " + res.get('title', '')).lower()
-        
-        # Calculate how high the spike should be based on our semantic re-ranker
-        volume_boost = int(res.get('relevance_score', 0.5) * 25) + 10 
-        
-        assigned_date = False
-        
-        # 1. SMART SCANNER: Look for explicit mentions of recent days in the text
-        for i in range(7):
-            past_date = today - datetime.timedelta(days=i)
-            month_str = past_date.strftime("%b").lower() # e.g., "mar"
-            month_full = past_date.strftime("%B").lower() # e.g., "march"
-            day_str = str(past_date.day) # e.g., "24"
-            
-            # Check if text says "Mar 24", "March 24", "2 days ago", or "yesterday"
-            if (f"{month_str} {day_str}" in text or 
-                f"{month_full} {day_str}" in text or 
-                f"{i} days ago" in text or 
-                (i == 1 and "yesterday" in text)):
-                
-                date_key = past_date.strftime("%b %d")
-                trend_data[date_key] += volume_boost
-                assigned_date = True
-                break
-                
-        # 2. DETERMINISTIC FALLBACK: If no date is found, create a unique spike based on the text
-        if not assigned_date and text.strip():
-            # Create a unique number from the article's text using MD5 hashing
-            hash_val = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
-            
-            # Use that unique number to pick a consistent day (0 to 6 days ago)
-            random_days_ago = hash_val % 7
-            target_date = (today - datetime.timedelta(days=random_days_ago)).strftime("%b %d")
-            
-            # Add a moderate volume spike
-            trend_data[target_date] += (volume_boost // 2)
 
-    # Convert back to the array format Recharts needs
-    return [{"date": k, "volume": v} for k, v in trend_data.items()]
 def filter_relevant_sources(core_claim: str, search_results: list, max_to_keep: int = 5) -> list:
     """Scores and filters search results to remove irrelevant SEO spam."""
     if not search_results: return []
@@ -146,7 +91,11 @@ def generate_search_plan(user_query: str, api_key: str) -> list:
     
     Example Output format:
     ["exact quote or event search", "official statement on event", "criticism or debunking of event"]
+    CRITICAL RULES FOR ANALYSIS:
+    1. GEO-DEFAULT: Unless the user explicitly names a foreign country, you MUST assume the context is India.
+    2. Check claims against official Indian sources like the RBI, PIB, or established Indian news outlets before analyzing.
     """
+    
     
     payload = {
         "contents": [{"parts": [{"text": planning_prompt}]}],
@@ -179,7 +128,7 @@ def generate_hybrid_rag_news(user_query: str, api_key: str, language: str="Engli
         search_plan = generate_search_plan(user_query, api_key)
         
         # Safely unpack the queries
-        q_factual = search_plan[0] if len(search_plan) > 0 else user_query
+        q_factual = search_plan[0] if len(search_plan) > 0 else user_query 
         q_official = search_plan[1] if len(search_plan) > 1 else user_query
         q_alt = search_plan[2] if len(search_plan) > 2 else f'criticism of "{user_query}" OR "opposition to {user_query}"'
 
@@ -236,8 +185,8 @@ def generate_hybrid_rag_news(user_query: str, api_key: str, language: str="Engli
         filtered_alternative = filter_relevant_sources(user_query, raw_alternative, max_to_keep=3)
 
         # Build context strings securely using the filtered arrays
-        consensus_context = "\n\n".join([f"SOURCE: {r.get('url')}\n{r.get('content')}" for r in filtered_consensus])
-        alternative_context = "\n\n".join([f"SOURCE: {r.get('url')}\n{r.get('content')}" for r in filtered_alternative])
+        consensus_context = "\n\n".join([f"SOURCE: {r.get('url')}\nPUBLISHED: {r.get('published_date', 'Date Unknown')}\n{r.get('content')}" for r in filtered_consensus])
+        alternative_context = "\n\n".join([f"SOURCE: {r.get('url')}\nPUBLISHED: {r.get('published_date', 'Date Unknown')}\n{r.get('content')}" for r in filtered_alternative])
 
         # 4. STRICT MASTER INTEGRITY SCAN
         # Ensure the integrity scan also only uses the filtered, relevant list
@@ -297,10 +246,19 @@ def generate_hybrid_rag_news(user_query: str, api_key: str, language: str="Engli
         audit_trail = to_list(parsed.get("[AUDIT]", ""))
         logic = parsed.get("[LOGIC_AUDIT]", "Audit complete.")
         conf_val = parsed.get("[CONFIDENCE]", "95")
-
-        # Temporal Data
-        
-        trend = generate_temporal_trend(all_results)
+        timeline=parsed.get("[TIMELINE]", "[]")
+        raw_bias_score = parsed.get("[BIAS_METER]", "0").strip()
+        bias_reason = parsed.get("[BIAS_REASON]", "No bias detected.")
+        try:
+            clean_timeline = timeline.replace("```json","").replace("```", "").strip()
+            timeline_data = json.loads(clean_timeline) if clean_timeline else []
+        except:
+            timeline_data = []
+        try:
+            clean_bias_score=int(re.search(r'\d+', raw_bias_score).group())
+            normalised_score=clean_bias_score/100.0
+        except:
+            normalised_score=0
 
         return {
             "status": "SUCCESS",
@@ -310,9 +268,10 @@ def generate_hybrid_rag_news(user_query: str, api_key: str, language: str="Engli
             "audit_history": audit_trail,
             "logic_audit": logic or "Audit complete.",
             "certainty": int(re.search(r'\d+', conf_val).group()) if re.search(r'\d+', conf_val) else 95,
-            "trend_history": trend,
+            "evidence_timeline": timeline_data,
             "verification_audit": {"goldenCount": counts["gold"], "consensusCount": counts["con"], "rawCount": counts["raw"]},
-            "bias_score": calculate_bias_score(raw_text),
+            "bias_score": normalised_score,
+            "bias_reason": bias_reason,
             "sources": verified_sources[:8]
         }
 
