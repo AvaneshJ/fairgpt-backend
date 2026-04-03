@@ -102,7 +102,7 @@ def generate_search_plan(user_query: str, api_key: str) -> list:
     }
     
     try:
-        response = requests.post(f"{API_URL_BASE}/v1beta/models/{MODEL_NAME}:generateContent?key={api_key}", json=payload, timeout=20)
+        response = requests.post(f"{API_URL_BASE}/v1beta/models/{MODEL_NAME}:generateContent?key={api_key}", json=payload, timeout=60)
         response.raise_for_status()
         raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
         
