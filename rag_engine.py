@@ -221,7 +221,7 @@ def generate_hybrid_rag_news(user_query: str, api_key: str, language: str="Engli
             "system_instruction": {"parts": [{"text": SYSTEM_INSTRUCTION + "\n\nSTRUCTURE: [SUMMARY], [COUNTER_SUMMARY], [CLARIFICATION], [AUDIT], [LOGIC_AUDIT], [CONFIDENCE]. Do not use markdown headers." + translation_rule}]}
         }
         
-        response = requests.post(f"{API_URL_BASE}/v1beta/models/{MODEL_NAME}:generateContent?key={api_key}", json=payload, timeout=45)
+        response = requests.post(f"{API_URL_BASE}/v1beta/models/{MODEL_NAME}:generateContent?key={api_key}", json=payload, timeout=90)
         response.raise_for_status()
         raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
         parsed = parse_ai_response(raw_text)
