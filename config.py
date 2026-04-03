@@ -16,7 +16,7 @@ API_URL_BASE = "https://generativelanguage.googleapis.com"
 # Gemini API Model for Generation and Grounding
 MODEL_NAME = "gemini-2.5-flash"
 MAX_RETRIES = 3
-API_TIMEOUT = 60 # Seconds
+API_TIMEOUT = 120 # Seconds
 
 # --- AI SYSTEM INSTRUCTION (Core of P2.3) ---
 SYSTEM_INSTRUCTION = """
